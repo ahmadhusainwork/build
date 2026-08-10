@@ -114,15 +114,18 @@ function icon(name, size, color, extraClass) {
 }
 
 /* ---------- Data model ---------- */
-const CHALLENGE_START = new Date(2026, 7, 6); // Aug 6, 2026 — final, locked date
+const CHALLENGE_START = new Date(2026, 7, 10); // Aug 10, 2026 — final, locked date
 const CHALLENGE_LENGTH = 180;
-const DEEN_TRIAL_START = new Date(2026, 7, 5); // 5 Aug 2026 — trial/test window
-const DEEN_FINAL_START = new Date(2026, 7, 6); // 6 Aug 2026 — official 1-year start
+const DEEN_TRIAL_START = new Date(2026, 7, 9); // 9 Aug 2026 — trial/test window
+const DEEN_FINAL_START = new Date(2026, 7, 10); // 10 Aug 2026 — official 1-year start
 const DEEN_LENGTH = 365;
 
 const TASKS = [
-  { id: 'pw', label: 'PW Foundation', time: '2:20 – 5:00 PM', endMinutes: 17 * 60, iconName: 'building',
-    subTasks: [ { id: 'pwLecture', label: 'Lecture (1h 10m)' }, { id: 'pwNotes', label: 'Notes (30m)' } ] },
+  { id: 'pw', label: 'PW Foundation', time: 'Two slots — see below', endMinutes: 20 * 60 + 10, iconName: 'building',
+    subTasks: [
+      { id: 'pwLecture', label: 'Lecture (2h 20m)', time: '2:10 – 4:50 PM', endMinutes: 16 * 60 + 50 },
+      { id: 'pwNotes', label: 'Notes (40m)', time: '7:15 – 8:10 PM', endMinutes: 20 * 60 + 10 },
+    ] },
   { id: 'business', label: 'P&I Business', time: '5:40 – 6:40 PM', endMinutes: 18 * 60 + 40, iconName: 'trending' },
   { id: 'arabic', label: 'Arabic Live Class', time: '10:00 – 11:00 PM', endMinutes: 23 * 60, iconName: 'book' },
   { id: 'english', label: 'English', time: 'Anytime · 40 min min', endMinutes: 24 * 60, iconName: 'languages' },
@@ -187,8 +190,11 @@ let state = {
   view: 'today',
   expandedDate: null,
   copied: false,
-  selectedDate: null, // set on init to real today; navigable via prev/next
+  selectedDate: null,
+  locked: sessionStorage.getItem('foundation-tracker-unlocked') !== 'yes',
+  pinError: false,
 };
+const TRACKER_PIN = '0401';
 
 const STORAGE_KEY = 'foundation-tracker-history';
 
@@ -323,10 +329,10 @@ function buildSummaryText() {
     `Study & Work (last 30 days): ${rateAvg(['pwLecture','pwNotes','business','arabic','english'], 30)}% avg`,
     `  PW Lecture ${rateSingle('pwLecture',30)}% · PW Notes ${rateSingle('pwNotes',30)}% · Business ${rateSingle('business',30)}% · Arabic ${rateSingle('arabic',30)}% · English ${rateSingle('english',30)}%`,
     '',
-    `Ibadah (last 30 days, since 6 Aug 2026): 5-Salah rate ${rateGroup(SALAH.map(s=>s.id),30,DEEN_FINAL_START)}%, Tahajjud ${rateSingle('tahajjud',30,DEEN_FINAL_START)}%`,
+    `Ibadah (last 30 days, since 10 Aug 2026): 5-Salah rate ${rateGroup(SALAH.map(s=>s.id),30,DEEN_FINAL_START)}%, Tahajjud ${rateSingle('tahajjud',30,DEEN_FINAL_START)}%`,
     `  After-Salah: Dhikr ${rateSingle('dhikr',30,DEEN_FINAL_START)}% · Dua ${rateSingle('dua',30,DEEN_FINAL_START)}% · Sunnah ${rateSingle('sunnah',30,DEEN_FINAL_START)}%`,
     '',
-    `Character (last 30 days, since 6 Aug 2026): ${rateAvg(CHARACTER.map(c=>c.id),30,DEEN_FINAL_START)}% avg`,
+    `Character (last 30 days, since 10 Aug 2026): ${rateAvg(CHARACTER.map(c=>c.id),30,DEEN_FINAL_START)}% avg`,
     ...CHARACTER.map(c => `  ${c.label}: ${rateSingle(c.id,30,DEEN_FINAL_START)}%`),
   ];
   return lines.join('\n');
@@ -379,7 +385,7 @@ function renderHeader() {
         <div class="display" style="font-size:26px;font-weight:600;letter-spacing:-0.3px;">Foundation</div>
         <div style="font-size:12.5px;color:var(--cream-dim);margin-top:2px;">${esc(selMid.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'}))}${isRealToday?'':' <span style="color:var(--green-bright);">· editing past day</span>'}</div>
         <div style="font-size:11px;color:var(--green-bright);margin-top:4px;font-weight:600;letter-spacing:0.3px;">
-          ${notStarted ? '180-day run starts Aug 6' : done180 ? '180-day run complete' : `Day ${dayNumber} of ${CHALLENGE_LENGTH}`}
+          ${notStarted ? '180-day run starts Aug 10' : done180 ? '180-day run complete' : `Day ${dayNumber} of ${CHALLENGE_LENGTH}`}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;">
@@ -481,7 +487,11 @@ function renderTaskList() {
   const cards = TASKS.map((t, i) => {
     const done = isDone(td, t.id);
     const skipped = t.id === 'arabic' && td.arabicSkip;
-    const missed = !locked && !done && (isPastDay || (t.id !== 'english' && nowMinutes > t.endMinutes));
+    const missed = !locked && !done && (
+      t.subTasks
+        ? t.subTasks.some(st => !td[st.id] && st.endMinutes != null && (isPastDay || nowMinutes > st.endMinutes))
+        : (isPastDay || (t.id !== 'english' && nowMinutes > t.endMinutes))
+    );
     const streak = getStreak(t.id);
 
     const iconBoxBg = skipped ? 'var(--bg-panel2)' : done ? 'var(--green-bright)' : missed ? 'var(--red-soft)' : 'var(--bg-panel2)';
@@ -490,12 +500,16 @@ function renderTaskList() {
 
     let subHtml = '';
     if (t.subTasks) {
-      subHtml = `<div style="display:flex;flex-direction:column;gap:6px;margin-top:9px;">
+      subHtml = `<div style="display:flex;flex-direction:column;gap:8px;margin-top:9px;">
         ${t.subTasks.map(st => {
           const stDone = !!td[st.id];
+          const stMissed = !locked && !stDone && st.endMinutes != null && (isPastDay || nowMinutes > st.endMinutes);
           return `<button class="btn-ghost" data-action="toggle-task" data-id="${st.id}" ${locked?'disabled':''} style="display:flex;align-items:center;gap:7px;text-align:left;${locked?'cursor:not-allowed;':''}">
             ${stDone ? icon('checkCircle',16,'var(--green-bright)') : icon('circle',16,'var(--cream-dim)')}
-            <span style="font-size:12px;color:${stDone?'var(--cream)':'var(--cream-dim)'}">${esc(st.label)}</span>
+            <span style="display:flex;flex-direction:column;">
+              <span style="font-size:12px;color:${stDone?'var(--cream)':'var(--cream-dim)'}">${esc(st.label)}</span>
+              ${st.time ? `<span style="font-size:10.5px;color:${stMissed?'var(--red)':'var(--cream-dim)'};display:flex;align-items:center;gap:3px;">${stMissed?icon('alert',9):''} ${esc(st.time)}</span>` : ''}
+            </span>
           </button>`;
         }).join('')}
         ${(!done && (td.pwLecture || td.pwNotes)) ? `<span style="font-size:10.5px;color:var(--cream-dim);">marks final only when both are checked</span>` : ''}
@@ -557,12 +571,12 @@ function renderDeenBanner() {
   const border = locked ? 'var(--red)' : trial ? 'var(--line-r)' : 'var(--deen-line)';
   const color = locked ? 'var(--red)' : trial ? 'var(--cream-dim)' : 'var(--deen)';
   const text = locked
-    ? 'Deen tracker locked — trial opens 5 Aug 2026, official 1-year run starts 6 Aug 2026'
+    ? 'Deen tracker locked — trial opens 9 Aug 2026, official 1-year run starts 10 Aug 2026'
     : trial
-      ? "Trial mode — testing before the official 1-year run starts 6 Aug 2026 (marks here don't count toward the streak)"
+      ? "Trial mode — testing before the official 1-year run starts 10 Aug 2026 (marks here don't count toward the streak)"
       : finished
         ? '1-year Deen journey complete'
-        : `Day ${dayNumber} of ${DEEN_LENGTH} · started 6 Aug 2026`;
+        : `Day ${dayNumber} of ${DEEN_LENGTH} · started 10 Aug 2026`;
 
   return { locked, trial, html: `
   <div class="wrap" style="margin-top:22px;">
@@ -712,14 +726,14 @@ function renderInsights() {
     ['Arabic Class', rateSingle('arabic',30)],
     ['English', rateSingle('english',30)],
   ], 'var(--green-bright)');
-  const ibadah = insightBlock('Ibadah — last 30 days (since 6 Aug 2026)', [
+  const ibadah = insightBlock('Ibadah — last 30 days (since 10 Aug 2026)', [
     ['5 Salah (all done)', rateGroup(SALAH.map(s=>s.id),30,DEEN_FINAL_START)],
     ['Tahajjud', rateSingle('tahajjud',30,DEEN_FINAL_START)],
     ['Dhikr', rateSingle('dhikr',30,DEEN_FINAL_START)],
     ['Dua', rateSingle('dua',30,DEEN_FINAL_START)],
     ['Sunnah', rateSingle('sunnah',30,DEEN_FINAL_START)],
   ], 'var(--deen)');
-  const character = insightBlock('Character — last 30 days (since 6 Aug 2026)',
+  const character = insightBlock('Character — last 30 days (since 10 Aug 2026)',
     CHARACTER.map(c => [c.label, rateSingle(c.id,30,DEEN_FINAL_START)]), 'var(--green-bright)');
 
   return `
@@ -737,8 +751,44 @@ function renderInsights() {
   </div>`;
 }
 
+function renderLockScreen() {
+  return `
+  <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;">
+    <div style="width:56px;height:56px;border-radius:16px;background:var(--bg-panel);border:1px solid var(--line-r);display:flex;align-items:center;justify-content:center;margin-bottom:18px;">
+      ${icon('minusCircle',22,'var(--green-bright)')}
+    </div>
+    <div class="display" style="font-size:20px;font-weight:600;margin-bottom:6px;">Foundation</div>
+    <div style="font-size:12px;color:var(--cream-dim);margin-bottom:22px;">Enter PIN to unlock</div>
+    <input id="pin-input" type="password" inputmode="numeric" maxlength="4" placeholder="••••" style="width:140px;text-align:center;font-size:22px;letter-spacing:8px;background:var(--bg-panel);border:1px solid ${state.pinError?'var(--red)':'var(--line-r)'};border-radius:12px;padding:12px 0;color:var(--cream);outline:none;" />
+    ${state.pinError ? `<div style="color:var(--red);font-size:11.5px;margin-top:8px;">Wrong PIN, try again</div>` : ''}
+    <button class="btn-ghost" data-action="submit-pin" style="margin-top:18px;background:var(--green-bright);color:var(--bg-deep);border-radius:10px;padding:10px 28px;font-size:13px;font-weight:600;">Unlock</button>
+  </div>`;
+}
+
+function checkPin() {
+  const input = document.getElementById('pin-input');
+  const val = input ? input.value : '';
+  if (val === TRACKER_PIN) {
+    sessionStorage.setItem('foundation-tracker-unlocked', 'yes');
+    state.locked = false;
+    state.pinError = false;
+    loadHistory();
+  } else {
+    state.pinError = true;
+    render();
+    const el = document.getElementById('pin-input');
+    if (el) el.focus();
+  }
+}
+
 function render() {
   const app = document.getElementById('app');
+  if (state.locked) {
+    app.innerHTML = renderLockScreen();
+    const el = document.getElementById('pin-input');
+    if (el) el.focus();
+    return;
+  }
   if (state.loading) {
     app.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;"><div style="color:var(--cream-dim);font-size:14px;letter-spacing:1px;">loading foundation…</div></div>`;
     return;
@@ -785,11 +835,16 @@ document.getElementById('app').addEventListener('click', (e) => {
   else if (action === 'nav-goto-day') { if (el.dataset.date <= realToday()) { state.selectedDate = el.dataset.date; render(); } }
   else if (action === 'download-csv') { downloadCSV(); }
   else if (action === 'copy-summary') { copySummary(); }
+  else if (action === 'submit-pin') { checkPin(); }
+});
+
+document.getElementById('app').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target && e.target.id === 'pin-input') checkPin();
 });
 
 /* ---------- Init ---------- */
-setInterval(() => { state.now = new Date(); render(); }, 30000);
-loadHistory();
+setInterval(() => { state.now = new Date(); if (!state.locked) render(); }, 30000);
+if (state.locked) { render(); } else { loadHistory(); }
 </script>
 </body>
 </html>
